@@ -1,0 +1,84 @@
+fails with -O0 but not with -O1
+
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+
+typedef struct {
+  int data;
+} box_t;
+
+SEC("kprobe/sys_clone")
+int bpf_hello_world(struct pt_regs *ctx, box_t info) {
+
+    int ret = info.data;
+
+    bpf_printk("Hello from eBPF program!\n");
+    return 0;
+}
+
+char _license[] SEC("license") = "GPL";
+
+
+
+-O0
+
+%struct.box_t = type { i32 }
+
+@bpf_hello_world.____fmt = internal constant [26 x i8] c"Hello from eBPF program!\0A\00", align 16
+@bpf_trace_printk = internal global ptr inttoptr (i64 6 to ptr), align 8
+@_license = dso_local global [4 x i8] c"GPL\00", section "license", align 1
+@llvm.compiler.used = appending global [2 x ptr] [ptr @bpf_hello_world, ptr @_license], section "llvm.metadata"
+
+; Function Attrs: noinline nounwind optnone uwtable
+define dso_local i32 @bpf_hello_world(ptr noundef %0, i32 %1) #0 section "kprobe/sys_clone" {
+  %3 = alloca %struct.box_t, align 4
+  %4 = alloca ptr, align 8
+  %5 = alloca i32, align 4
+  %6 = alloca i64, align 8
+  %7 = getelementptr inbounds %struct.box_t, ptr %3, i32 0, i32 0
+  store i32 %1, ptr %7, align 4
+  store ptr %0, ptr %4, align 8
+  %8 = getelementptr inbounds %struct.box_t, ptr %3, i32 0, i32 0
+  %9 = load i32, ptr %8, align 4
+  store i32 %9, ptr %5, align 4
+  %10 = load ptr, ptr @bpf_trace_printk, align 8
+  %11 = call i64 (ptr, i32, ...) %10(ptr noundef @bpf_hello_world.____fmt, i32 noundef 26)
+  store i64 %11, ptr %6, align 8
+  %12 = load i64, ptr %6, align 8
+  ret i32 0
+}
+
+
+-O1
+
+@bpf_hello_world.____fmt = internal constant [26 x i8] c"Hello from eBPF program!\0A\00", align 16
+@_license = dso_local global [4 x i8] c"GPL\00", section "license", align 1
+@llvm.compiler.used = appending global [2 x ptr] [ptr @_license, ptr @bpf_hello_world], section "llvm.metadata"
+
+; Function Attrs: nounwind uwtable
+define dso_local i32 @bpf_hello_world(ptr nocapture readnone %0, i32 %1) #0 section "kprobe/sys_clone" {
+  %3 = tail call i64 (ptr, i32, ...) inttoptr (i64 6 to ptr)(ptr noundef nonnull @bpf_hello_world.____fmt, i32 noundef 26) #1
+  ret i32 0
+}
+
+
+-02
+
+@bpf_hello_world.____fmt = internal constant [26 x i8] c"Hello from eBPF program!\0A\00", align 16
+@_license = dso_local global [4 x i8] c"GPL\00", section "license", align 1
+@llvm.compiler.used = appending global [2 x ptr] [ptr @_license, ptr @bpf_hello_world], section "llvm.metadata"
+
+; Function Attrs: nounwind uwtable
+define dso_local i32 @bpf_hello_world(ptr nocapture readnone %0, i32 %1) #0 section "kprobe/sys_clone" {
+  %3 = tail call i64 (ptr, i32, ...) inttoptr (i64 6 to ptr)(ptr noundef nonnull @bpf_hello_world.____fmt, i32 noundef 26) #1
+  ret i32 0
+}
+
+
+
+
+
+
+
+
