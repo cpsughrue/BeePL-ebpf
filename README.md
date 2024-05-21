@@ -1,8 +1,8 @@
-Over the past two weeks, I had some time to explore LLVM analysis passes, LLVM transformation passes, and [type unboxing](https://discourse.llvm.org/t/newtype-optimisations-and-field-unpacking/78755). I first familiarized myself with LLVM IR and how to write a pass. I created a [simple-llvm-template](https://github.com/cpsughrue/simple-llvm-template), based on a [talk](https://youtu.be/ar7cJl2aBuU?si=xVZm9uWA_pyU1w0l) I found, which contains an analysis pass, a transformation pass, and LLVM LIT tests. I then spent time investigating how the LLVM optimizer, as is, transforms Koka's boxed types and where we would benefit from writting additional passes.
+Over the past two weeks, I had some time to explore LLVM analysis passes, LLVM transformation passes, and [type unpacking](https://discourse.llvm.org/t/newtype-optimisations-and-field-unpacking/78755). I first familiarized myself with LLVM IR and how to write a pass. I created a [simple-llvm-template](https://github.com/cpsughrue/simple-llvm-template), based on a [talk](https://youtu.be/ar7cJl2aBuU?si=xVZm9uWA_pyU1w0l) I found, which contains an analysis pass, a transformation pass, and a couple LLVM LIT tests. I then spent time investigating how the LLVM optimizer, as is, transforms koka's boxed types and where we would benefit from writting additional passes.
 
 ### LLVM IR Discoveries
 
-The LLVM optimizer already does some unboxing. For example, when `foo` is compiled to LLVM IR with `-O0` and `-O1` the argument and return value are transformed from `box_t` to `i8`.
+The LLVM optimizer already does some unpacking. For example, when `foo` is compiled to LLVM IR with `-O0` and `-O1` the argument and return value are transformed from `box_t` to `i8`.
 
 ```c
 #include <stdint.h>
@@ -153,7 +153,7 @@ box_t foo(box_t bar) {
 </code></pre>
 <br>
 
-As long as `sizeof(box_t)` is 128 bytes or less the LLVM optimizer will unbox `box_t` and pass its contents to `foo` as integer arguments. Once `sizeof(box_t)` is larger then 64 bytes `foo` begins to return a structured value.
+As long as `sizeof(box_t)` is 128 bytes or less the LLVM optimizer will unpack `box_t` and pass its contents to `foo` as integer arguments. Once `sizeof(box_t)` is larger then 64 bytes `foo` begins to return a structured value.
 
 ```c
 #include <stdint.h>
@@ -178,7 +178,7 @@ box_t foo(box_t bar) {
 </code></pre>
 <br>
 
-As soon as `sizeof(box_t)` exceeds 128 bytes the LLVM optimizer passes the struct to `foo` by value instead of unboxing its contents.
+As soon as `sizeof(box_t)` exceeds 128 bytes the LLVM optimizer passes the struct to `foo` by value instead of unpacking its contents.
 ```c
 #include <stdint.h>
 
@@ -267,14 +267,14 @@ int packet_count(void *ctx) {
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 ```
-This is where I left off. I got eBPF set up and can load/unload xdp programs. I am still working on creating an xdp program that gets rejected by the eBPF verifier due to its use of a struct. It has been harder then I expected, potentially because LLVM already unboxes simple structs, but I think I am pretty close to getting there.
+This is where I left off. I got eBPF set up and can load/unload xdp programs. I am still working on creating an xdp program that gets rejected by the eBPF verifier due to its use of a struct. It has been harder then I expected, potentially because LLVM already unpacks simple structs, but I think I am pretty close to getting there.
 
 ### Other questions I need to figure out
 * I need to figure out if it is problematic for a function to return a struct in an eBPF program (e.g., `ret { i64, i64 } %4`)
 * The LLVM IR for `foo` sometimes still makes references to the struct in its body (e.g., `%2 = alloca %struct.kk_integer_s, align 8`). I need to figure out if that's problematic for eBPF programs
 
 ### Potential Next Steps
-1. Continue working on creating an eBPF program "broken" by its use of structs then write an LLVM pass to "fix" it or determine for certain that the LLVM optimizer already does enogh to unbox structs
+1. Continue working on creating an eBPF program "broken" by its use of structs then write an LLVM pass to "fix" it or determine for certain that the LLVM optimizer already does enogh to unpack structs
 2. Write a pass so that `box_t` gets passed to `foo` as two `i8` instead of one `i16`
 ```c
 typedef struct {
