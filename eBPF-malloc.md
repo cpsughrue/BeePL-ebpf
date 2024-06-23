@@ -35,8 +35,6 @@ First instinct is to implement a linked list allocator that uses memory from a l
 <details>
   <summary>Beginning of simple implementation</summary>
 
-NOTE: Initalizing `free_list` as `NULL` and setting `free_list` equal to `(struct block *)pool` in `initailize_pool` results in `data->x` being rejected by the verifier because it is concidered as an invalid memory access. The takeaway is that even if you know a value will be initiated prior to being accessed, always initiate it at construction.
-
 ```c
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
@@ -44,7 +42,6 @@ NOTE: Initalizing `free_list` as `NULL` and setting `free_list` equal to `(struc
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <pthread.h>
 
 #define POOL_SIZE 1024
 
@@ -57,7 +54,7 @@ struct block {
 static uint8_t pool[POOL_SIZE];
 static struct block *free_list = (struct block *)pool;
 static bool is_initialized = false;
-static struct bpf_spin_lock lock = {0};
+static struct bpf_spin_lock lock = {0}; 
 
 void initialize_pool() {
     free_list->size = POOL_SIZE - sizeof(struct block);
@@ -67,6 +64,11 @@ void initialize_pool() {
 }
 
 void *static_malloc(size_t size){
+    // could be lock free if required
+    bpf_spin_lock(&lock);
+    if(is_initialized == false) initialize_pool();
+    bpf_spin_unlock(&lock);
+    
     free_list->free = false;
     return (void *)((uint8_t *)free_list + sizeof(struct block));
 }
@@ -80,17 +82,12 @@ typedef struct vec2 {
 
 SEC("xdp")
 int hello(struct xdp_md *ctx) {
-    
-    // could be lock free if required
-    bpf_spin_lock(&lock);
-    if(is_initialized == false) initialize_pool();
-    bpf_spin_unlock(&lock);
-    
-    vec2_t *data = (vec2_t *)static_malloc(sizeof(vec2_t));
+    vec2_t *data = (vec2_t *)static_malloc(sizeof(vec2_t));    
     data->x = counter;
 
     bpf_printk("Hello World %d at %d", data->x, data);
     __sync_fetch_and_add(&counter, 1);
+    
     return XDP_PASS;
 }
 
@@ -128,19 +125,44 @@ Disassembly of section .text:
       11:       95 00 00 00 00 00 00 00 exit
 
 0000000000000060 <static_malloc>:
+;     bpf_spin_lock(&lock);
+      12:       18 01 00 00 04 00 00 00 00 00 00 00 00 00 00 00 r1 = 0x4 ll
+      14:       85 00 00 00 5d 00 00 00 call 0x5d
+;     if(is_initialized == false) initialize_pool();
+      15:       18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 r1 = 0x0 ll
+      17:       71 12 00 00 00 00 00 00 r2 = *(u8 *)(r1 + 0x0)
+      18:       55 02 09 00 00 00 00 00 if r2 != 0x0 goto +0x9 <LBB1_2>
+;     free_list->size = POOL_SIZE - sizeof(struct block);
+      19:       18 02 00 00 10 00 00 00 00 00 00 00 00 00 00 00 r2 = 0x10 ll
+      21:       b7 03 00 00 00 00 00 00 r3 = 0x0
+;     free_list->next = NULL;
+      22:       7b 32 10 00 00 00 00 00 *(u64 *)(r2 + 0x10) = r3
+      23:       b7 03 00 00 e8 03 00 00 r3 = 0x3e8
+;     free_list->size = POOL_SIZE - sizeof(struct block);
+      24:       7b 32 00 00 00 00 00 00 *(u64 *)(r2 + 0x0) = r3
+      25:       b7 03 00 00 01 00 00 00 r3 = 0x1
+;     free_list->free = true;
+      26:       73 32 08 00 00 00 00 00 *(u8 *)(r2 + 0x8) = r3
+;     is_initialized = true;
+      27:       73 31 00 00 00 00 00 00 *(u8 *)(r1 + 0x0) = r3
+
+00000000000000e0 <LBB1_2>:
+;     bpf_spin_unlock(&lock);
+      28:       18 01 00 00 04 00 00 00 00 00 00 00 00 00 00 00 r1 = 0x4 ll
+      30:       85 00 00 00 5e 00 00 00 call 0x5e
 ;     free_list->free = false;
-      12:       18 00 00 00 10 00 00 00 00 00 00 00 00 00 00 00 r0 = 0x10 ll
-      14:       b7 01 00 00 00 00 00 00 r1 = 0x0
-      15:       73 10 08 00 00 00 00 00 *(u8 *)(r0 + 0x8) = r1
+      31:       18 00 00 00 10 00 00 00 00 00 00 00 00 00 00 00 r0 = 0x10 ll
+      33:       b7 01 00 00 00 00 00 00 r1 = 0x0
+      34:       73 10 08 00 00 00 00 00 *(u8 *)(r0 + 0x8) = r1
 ;     return (void *)((uint8_t *)free_list + sizeof(struct block));
-      16:       07 00 00 00 18 00 00 00 r0 += 0x18
-      17:       95 00 00 00 00 00 00 00 exit
+      35:       07 00 00 00 18 00 00 00 r0 += 0x18
+      36:       95 00 00 00 00 00 00 00 exit
 
 Disassembly of section xdp:
 
 0000000000000000 <hello>:
 ;     bpf_spin_lock(&lock);
-       0:       18 01 00 00 08 00 00 00 00 00 00 00 00 00 00 00 r1 = 0x8 ll
+       0:       18 01 00 00 04 00 00 00 00 00 00 00 00 00 00 00 r1 = 0x4 ll
        2:       85 00 00 00 5d 00 00 00 call 0x5d
 ;     if(is_initialized == false) initialize_pool();
        3:       18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 r1 = 0x0 ll
@@ -162,7 +184,7 @@ Disassembly of section xdp:
 
 0000000000000080 <LBB2_2>:
 ;     bpf_spin_unlock(&lock);
-      16:       18 01 00 00 08 00 00 00 00 00 00 00 00 00 00 00 r1 = 0x8 ll
+      16:       18 01 00 00 04 00 00 00 00 00 00 00 00 00 00 00 r1 = 0x4 ll
       18:       85 00 00 00 5e 00 00 00 call 0x5e
 ;     free_list->free = false;
       19:       18 04 00 00 10 00 00 00 00 00 00 00 00 00 00 00 r4 = 0x10 ll
