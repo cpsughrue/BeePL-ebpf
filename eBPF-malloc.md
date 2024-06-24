@@ -64,7 +64,6 @@ void initialize_pool() {
 }
 
 void *static_malloc(size_t size){
-    // could be lock free if required
     bpf_spin_lock(&lock);
     if(is_initialized == false) initialize_pool();
     bpf_spin_unlock(&lock);
@@ -211,3 +210,11 @@ Disassembly of section xdp:
 </details>
 
 * Load `hello.bpf.o` via `sudo bpftool prog load hello.bpf.o /sys/fs/bpf/hello`
+
+
+
+
+Next steps
+* lock free
+* use per cpu map
+* reduce size of block
