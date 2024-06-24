@@ -1,6 +1,6 @@
 # Emulating `malloc` and `free` in eBPF   
 
-The goal of this experiment is to take the program below and replace `malloc` with a custom allocator `static_malloc` such that it will be accepted by the eBPF verifier. Idealy `static_malloc` should emulate `malloc` such that any invalid eBPF program can be made valid by replacing all instance of `malloc` with `static_malloc` and including a single headerfile.
+The goal of this experiment is to modify the program below by substituting its use of `malloc` with a custom allocator called `static_malloc`. This modification aims to enable the program to pass the eBPF verifier. To ensure compatibility, `static_malloc` should closely mimic the behavior of `malloc` so that any eBPF program rendered invalid solely because of its reliance on `malloc` can be rectified by replacing all instances of `malloc` with `static_malloc` and incorporating a header file.
 
 ```c
 // hello.bpf.c
@@ -26,7 +26,7 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 ```
 
 
-### Allocator Implementatino
+### Allocator Implementation
 
 I did some reading on allocator design and based my implementation on a linked list allocator that uses a large array of `uint8_t` as its memory pool. I wrote a bare bones implementation outside eBPF to more easily test functionality then began porting the code to an eBPF program. I am almost done porting `static_malloc`. The eBPF verifier messages are pretty cryptic but I am starting to get a handle on it. In the program below `num_blocks++` is causing the eBPF verifier to reject the program. If you comment out `num_blocks++` then the program get accepted. 
 
@@ -73,7 +73,7 @@ void *static_malloc(size_t size){
                 curr->free = false;
             }
             else {
-                // curr is large enogh to split into two blocks
+                // curr is large enough to split into two blocks
                 struct block *new_block = (struct block *)((uint8_t *)curr + size + sizeof(struct block));
                 new_block->size = curr->size - size - sizeof(struct block);
                 new_block->free = true;
@@ -347,7 +347,6 @@ Disassembly of section xdp:
   <summary>error</summary>
 
 ```
-[cpsughrue@localhost chapter3]$ sudo bpftool prog load hello.bpf.o /sys/fs/bpf/hello
 libbpf: prog 'hello': BPF program load failed: Permission denied
 libbpf: prog 'hello': -- BEGIN PROG LOAD LOG --
 0: R1=ctx(off=0,imm=0) R10=fp0
@@ -408,7 +407,7 @@ Error: failed to load object file
 
 ### Next steps
 
-* I am going to find a few hours to identify the root cause of the above eBPF verifer error message. There may be a simple work around. In my experience a fix to appease the verifer is often pretty small and simple. The tricky part is tracking down the root cause. If there is no simple fix I have an idea for how to remove the need for the `num_blocks` variable which I will try out.
+* I am going to find a few hours to identify the root cause of the above eBPF verifier error message. There may be a simple work around. In my experience a fix to appease the verifier is often pretty small and simple. The tricky part is tracking down the root cause. If there is no simple fix I have an idea for how to remove the need for the `num_blocks` variable which I will try out.
 
 * I would like to place `memory_pool` in a `BPF_MAP_TYPE_PERCPU_HASH` which will help solve some of the thread safety challenges I have been working around. This should be a pretty easy change.
 
