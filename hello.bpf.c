@@ -1,93 +1,12 @@
-#if 0
+#include <stdint.h>
+#ifdef eBPF
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
-
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdbool.h>
-
-#define POOL_SIZE 1024
-
-struct block {
-    size_t size;
-    bool free;
-    struct block *next;
-};
-
-static uint8_t pool[POOL_SIZE];
-static struct block *list = (struct block *)pool;
-static bool is_initialized = false;
-static uint32_t num_blocks = 1;
-static struct bpf_spin_lock lock = {0};
-
-void initialize_pool() {
-    list->size = POOL_SIZE - sizeof(struct block);
-    list->free = true;
-    list->next = NULL;
-    is_initialized = true;
-}
-
-void *static_malloc(size_t size){
-    if(is_initialized == false) initialize_pool();
-
-    // must keep data 8 bytes aligned 
-    if (size % 8 != 0)
-        size = ((size / 8) + 1) * 8;
-
-    if (size <= 0 || size > POOL_SIZE)
-        return NULL;
-
-    uint32_t curr_position = 0;
-
-    for (int i = 0; i < num_blocks; i++) {
-        
-        if (curr_position + sizeof(struct block) > POOL_SIZE)
-            return NULL;
-        struct block *curr = (struct block *)(pool + curr_position);
-        
-        // find a block that is free and large enough to hold data
-        if (curr->free == true && curr->size >= size){
-            // block is either the perfect size or there is not at enogh space to split into two
-            //
-            // to split a block into two, curr->size must be larger then the amount of space 
-            // requested by the user plus the size of a struct block
-            if (curr->size <= size + sizeof(struct block)) {
-                curr->free = false;
-            }
-            // block is large enogh to split into two
-            else {
-                if(curr_position + (2 * sizeof(struct block)) + size > POOL_SIZE)
-                    return NULL;
-                struct block *new_block = (struct block *)(pool + curr_position + sizeof(struct block) + size);
-
-                new_block->size = curr->size - size - sizeof(struct block);
-                new_block->free = true;
-                new_block->next = curr->next;
-
-                // set values of curr
-                curr->size = size;
-                curr->free = false;
-                curr->next = new_block;
-                num_blocks++;
-            }
-            
-            if (curr_position + sizeof(struct block) + size > POOL_SIZE)
-                return NULL;
-            return &pool[curr_position + sizeof(struct block)];
-        }
-        curr_position += sizeof(struct block) + curr->size;
-    }
-    return NULL;
-}
-
-
 #else
+#include <stdio.h>
+#endif
 
-#include <stdint.h>
-#include <linux/bpf.h>
-#include <bpf/bpf_helpers.h>
-
-// Maximim number of allocations. 
+// Maximum number of allocations. 
 // 
 // Same number of allocations as would be possible with the linked list 
 // approach. struct block is 24 bytes plus a minimum of 8 bytes of data per 
@@ -101,6 +20,7 @@ struct alloc_info {
     uint32_t size;
 };
 
+#ifdef eBPF
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -108,7 +28,11 @@ struct {
     __type(key, uint32_t);
     __type(value, uint8_t[POOL_SIZE]);
 } memory_pool SEC(".maps");
+#else
+uint8_t memory_pool[POOL_SIZE] = {0};
+#endif
 
+#ifdef eBPF
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -116,6 +40,10 @@ struct {
     __type(key, uint32_t);
     __type(value, struct alloc_info[MAX_ALLOCS]);
 } alloc_metadata SEC(".maps");
+#else
+struct alloc_info alloc_metadata[MAX_ALLOCS] = {0};
+#endif
+
 
 static __always_inline void *static_malloc(uint32_t size) {
     if (size == 0 || size > POOL_SIZE)
@@ -125,14 +53,21 @@ static __always_inline void *static_malloc(uint32_t size) {
     if (size % 8 != 0)
         size = ((size / 8) + 1) * 8;
 
+#ifdef eBPF
     uint32_t key = 0;
     uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);
     struct alloc_info *metadata = bpf_map_lookup_elem(&alloc_metadata, &key);
+#else
+    uint8_t *pool = memory_pool;
+    struct alloc_info *metadata = alloc_metadata;
+#endif
+   
     if (!pool || !metadata)
         return NULL;
 
-    uint32_t current_pos = 0;
-    uint32_t alloc_index = -1;
+    // Use 64 bit values to provide flexibility in setting POOL_SIZE and MAX_ALLOCS
+    uint64_t current_pos = 0; // [0, POOL_SIZE]
+    int64_t alloc_index = -1; // [-1, MAX_ALLOCS]
 
     // because alloc_metadata is zero initalized, if alloc_info::size is 0 then
     // that index can be used to store meta data
@@ -159,10 +94,19 @@ static __always_inline void *static_malloc(uint32_t size) {
 
 // ptr will still be valid after calling static_free
 static __always_inline void static_free(void *ptr) {
+    if(!ptr)
+        return;
+
+#ifdef eBPF
     uint32_t key = 0;
     uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);
     struct alloc_info *metadata = bpf_map_lookup_elem(&alloc_metadata, &key);
-    if (!pool || !metadata || !ptr)
+#else
+    uint8_t *pool = memory_pool;
+    struct alloc_info *metadata = alloc_metadata;
+#endif
+    
+    if (!pool || !metadata)
         return;
 
     uint32_t ptr_offset = (uint8_t *)ptr - pool;
@@ -184,12 +128,17 @@ static __always_inline void static_free(void *ptr) {
                     metadata[i].start + metadata[i].size <= 0)
                 return;
 
+                if (metadata[i].start > POOL_SIZE)
+                    return;
+                if (metadata[i].start + metadata[i].size > POOL_SIZE)
+                    return;
+                if (metadata[i].start + metadata[i].size + size_to_move > POOL_SIZE)
+                    return;
+#ifdef eBPF
                 bpf_probe_read_kernel(&pool[metadata[i].start], 
                                       size_to_move, 
                                       &pool[metadata[i].start + metadata[i].size]);
-    
-
-
+#endif
 
     //             if(result < 0)
     //                 return;
@@ -210,7 +159,6 @@ static __always_inline void static_free(void *ptr) {
         }
     }
 }
-#endif
 
 int counter = 0;
 
@@ -219,6 +167,7 @@ typedef struct vec2 {
     int y;
 } vec2_t;
 
+#ifdef eBPF
 SEC("xdp")
 int hello(struct xdp_md *ctx) {
     vec2_t *data = (vec2_t *)static_malloc(sizeof(vec2_t));
@@ -236,3 +185,9 @@ int hello(struct xdp_md *ctx) {
 }
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
+#else
+int main() {
+    printf("hello world\n");
+    return 0;
+}
+#endif
