@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdbool.h>
 #ifdef eBPF
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
@@ -16,6 +17,7 @@
 #define POOL_SIZE 1024
 
 struct alloc_info {
+    bool     in_use;
     uint32_t start;
     uint32_t size;
 };
@@ -44,7 +46,6 @@ struct {
 struct alloc_info alloc_metadata[MAX_ALLOCS] = {0};
 #endif
 
-
 static __always_inline void *static_malloc(uint32_t size) {
     if (size == 0 || size > POOL_SIZE)
         return NULL;
@@ -61,7 +62,6 @@ static __always_inline void *static_malloc(uint32_t size) {
     uint8_t *pool = memory_pool;
     struct alloc_info *metadata = alloc_metadata;
 #endif
-   
     if (!pool || !metadata)
         return NULL;
 
@@ -72,7 +72,7 @@ static __always_inline void *static_malloc(uint32_t size) {
     // because alloc_metadata is zero initalized, if alloc_info::size is 0 then
     // that index can be used to store meta data
     for (int i = 0; i < MAX_ALLOCS; i++) {
-        if (metadata[i].size == 0) {
+        if ((metadata[i].size == 0 || metadata[i].size >= size) && !metadata[i].in_use) {
             alloc_index = i;
             break;
         }
@@ -86,6 +86,7 @@ static __always_inline void *static_malloc(uint32_t size) {
     if (current_pos + size > POOL_SIZE)
         return NULL;
 
+    metadata[alloc_index].in_use = true;
     metadata[alloc_index].start = current_pos;
     metadata[alloc_index].size = size;
 
@@ -113,49 +114,8 @@ static __always_inline void static_free(void *ptr) {
     for (int i = 0; i < MAX_ALLOCS; i++) {
         // find the metadata block that corresponds with the pointer being freed
         if (metadata[i].start == ptr_offset) {
-            
-            // calculate the number of bytes that have been allocated to the 
-            // right of ptr in memory_pool
-            uint32_t size_to_move = 0;
-            for (int j = i + 1; j < MAX_ALLOCS; j++) {
-                size_to_move += metadata[j].size;
-            }
-
-            if (size_to_move > 0) {
-                // Shift data to the left. (dst, source, size)
-                if (metadata[i].start + metadata[i].size + size_to_move > POOL_SIZE && 
-                    metadata[i].start <= 0 && 
-                    metadata[i].start + metadata[i].size <= 0)
-                return;
-
-                if (metadata[i].start > POOL_SIZE)
-                    return;
-                if (metadata[i].start + metadata[i].size > POOL_SIZE)
-                    return;
-                if (metadata[i].start + metadata[i].size + size_to_move > POOL_SIZE)
-                    return;
-#ifdef eBPF
-                bpf_probe_read_kernel(&pool[metadata[i].start], 
-                                      size_to_move, 
-                                      &pool[metadata[i].start + metadata[i].size]);
-#endif
-
-    //             if(result < 0)
-    //                 return;
-
-    //             // Shift all alloc_metadata entries left one 
-    //             uint32_t size_removed = metadata[i].size;
-    //             for (int j = i + 1; j < MAX_ALLOCS; j++) {
-    //                 metadata[j - 1] = metadata[j];
-    //                 if(metadata[j].size != 0)
-    //                     metadata[j - 1].start -= size_removed;
-    //             }
-            }
-
-    //         // Clear the last alloc_metadata entry
-    //         metadata[MAX_ALLOCS - 1].start = 0;
-    //         metadata[MAX_ALLOCS - 1].size = 0;
-    //         break;
+            metadata[i].in_use = false;
+            return;
         }
     }
 }
