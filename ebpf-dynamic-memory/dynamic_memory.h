@@ -1,3 +1,6 @@
+#ifndef DYNAMIC_MEMORY_H
+#define DYNAMIC_MEMORY_H
+
 #include <stdint.h>
 #include <stdbool.h>
 #ifdef native_executable 
@@ -13,8 +16,13 @@
 // approach. struct block is 24 bytes plus a minimum of 8 bytes of data per 
 // allocation (8 byte minimum due to 8 byte alignment) results in a minimum 
 // allocation of 32 bytes and 1024 / 32 = 32
+#ifndef MAX_ALLOCS
 #define MAX_ALLOCS 32
+#endif
+
+#ifndef POOL_SIZE
 #define POOL_SIZE 1024
+#endif
 
 struct alloc_info {
     bool     in_use;
@@ -119,3 +127,5 @@ static __always_inline void static_free(void *ptr) {
         }
     }
 }
+
+#endif // DYNAMIC_MEMORY_H
