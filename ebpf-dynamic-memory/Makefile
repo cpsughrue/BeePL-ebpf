@@ -1,13 +1,12 @@
 TARGETS = example
-COMPILER = /home/cpsughrue/sources/llvm/llvm-project/build-runtimes/bin/clang
 
 all: $(TARGETS)
 .PHONY: all
 
-$(TARGETS): %: %.bpf.o %.exec
+$(TARGETS): %: %.bpf.o %.exe
 
-%.exec: %.bpf.c
-	$(COMPILER) \
+%.exe: %.bpf.c
+	clang \
 		-Wall -Wextra \
 		-I/usr/include/$(shell uname -m)-linux-gnu \
 		-Dnative_executable \
@@ -15,14 +14,23 @@ $(TARGETS): %: %.bpf.o %.exec
 	    -O2 -o $@ $<
 
 %.bpf.o: %.bpf.c
-	$(COMPILER) \
+	clang \
 	    -target bpf \
 		-Wall -Wextra \
 		-I/usr/include/$(shell uname -m)-linux-gnu \
 		-g \
 	    -O2 -o $@ -c $<
 
+UNITY_PATH = ../unity/src
+UNITTEST_SRC = unittest.c  $(UNITY_PATH)/unity.c
+
+unittest: $(UNITTEST_SRC) dynamic_memory.h
+	clang $(UNITTEST_SRC) -I$(UNITY_PATH) -Dnative_executable -o $@ && ./unittest
+
 clean:
-	- rm *.bpf.o
-	- rm *.exec
+	- rm -f *.bpf.o
+	- rm -f *.exe
+	- rm -f unittest
+
+unload:
 	- rm -f /sys/fs/bpf/example
