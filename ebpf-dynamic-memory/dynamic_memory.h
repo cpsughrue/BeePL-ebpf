@@ -1,10 +1,10 @@
 #include <stdint.h>
 #include <stdbool.h>
-#ifdef eBPF
+#ifdef native_executable 
+#include <stdio.h>
+#else
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
-#else
-#include <stdio.h>
 #endif
 
 // Maximum number of allocations. 
@@ -22,7 +22,9 @@ struct alloc_info {
     uint32_t size;
 };
 
-#ifdef eBPF
+#ifdef native_executable
+uint8_t memory_pool[POOL_SIZE] = {0};
+#else
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -30,11 +32,11 @@ struct {
     __type(key, uint32_t);
     __type(value, uint8_t[POOL_SIZE]);
 } memory_pool SEC(".maps");
-#else
-uint8_t memory_pool[POOL_SIZE] = {0};
 #endif
 
-#ifdef eBPF
+#ifdef native_executable 
+struct alloc_info alloc_metadata[MAX_ALLOCS] = {0};
+#else
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -42,8 +44,6 @@ struct {
     __type(key, uint32_t);
     __type(value, struct alloc_info[MAX_ALLOCS]);
 } alloc_metadata SEC(".maps");
-#else
-struct alloc_info alloc_metadata[MAX_ALLOCS] = {0};
 #endif
 
 static __always_inline void *static_malloc(uint32_t size) {
@@ -54,13 +54,13 @@ static __always_inline void *static_malloc(uint32_t size) {
     if (size % 8 != 0)
         size = ((size / 8) + 1) * 8;
 
-#ifdef eBPF
+#ifdef native_executable 
+    uint8_t *pool = memory_pool;
+    struct alloc_info *metadata = alloc_metadata;
+#else
     uint32_t key = 0;
     uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);
     struct alloc_info *metadata = bpf_map_lookup_elem(&alloc_metadata, &key);
-#else
-    uint8_t *pool = memory_pool;
-    struct alloc_info *metadata = alloc_metadata;
 #endif
     if (!pool || !metadata)
         return NULL;
@@ -98,13 +98,13 @@ static __always_inline void static_free(void *ptr) {
     if(!ptr)
         return;
 
-#ifdef eBPF
+#ifdef native_executable 
+    uint8_t *pool = memory_pool;
+    struct alloc_info *metadata = alloc_metadata;
+#else
     uint32_t key = 0;
     uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);
     struct alloc_info *metadata = bpf_map_lookup_elem(&alloc_metadata, &key);
-#else
-    uint8_t *pool = memory_pool;
-    struct alloc_info *metadata = alloc_metadata;
 #endif
     
     if (!pool || !metadata)
@@ -119,35 +119,3 @@ static __always_inline void static_free(void *ptr) {
         }
     }
 }
-
-int counter = 0;
-
-typedef struct vec2 {
-    int x;
-    int y;
-} vec2_t;
-
-#ifdef eBPF
-SEC("xdp")
-int hello(struct xdp_md *ctx) {
-    vec2_t *data = (vec2_t *)static_malloc(sizeof(vec2_t));
-    if (data)
-        bpf_printk("valid block found");
-    else
-        bpf_printk("no block found");
-
-    static_free(data);
-
-    bpf_printk("Hello World %d", counter);
-    __sync_fetch_and_add(&counter, 1);
-    
-    return XDP_PASS;
-}
-
-char LICENSE[] SEC("license") = "Dual BSD/GPL";
-#else
-int main() {
-    printf("hello world\n");
-    return 0;
-}
-#endif
