@@ -114,7 +114,6 @@ static __always_inline void static_free(void *ptr) {
     uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);
     struct alloc_info *metadata = bpf_map_lookup_elem(&alloc_metadata, &key);
 #endif
-    
     if (!pool || !metadata)
         return;
 
