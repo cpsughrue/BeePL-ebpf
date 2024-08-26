@@ -14,7 +14,9 @@ int main() {
 }
 #else
 SEC("xdp")
-int hello(struct xdp_md *ctx) {
+int example(struct xdp_md *ctx) {
+    (void)ctx; // supress unused variable warning
+    
     vec2_t *data = (vec2_t *)static_malloc(sizeof(vec2_t));
     if (data)
         bpf_printk("valid block found");
