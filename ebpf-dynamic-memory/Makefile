@@ -8,7 +8,7 @@ $(BUILD_DIR):
 
 $(TARGETS): $(BUILD_DIR)/example.bpf.o $(BUILD_DIR)/example
 
-$(BUILD_DIR)/example: example.bpf.c
+$(BUILD_DIR)/example: example.bpf.c dynamic_memory.h
 	clang \
 		-Wall -Wextra \
 		-I/usr/include/$(shell uname -m)-linux-gnu \
@@ -16,12 +16,11 @@ $(BUILD_DIR)/example: example.bpf.c
 		-g \
 		-O2 -o $@ $<
 
-$(BUILD_DIR)/example.bpf.o: example.bpf.c
+$(BUILD_DIR)/example.bpf.o: example.bpf.c dynamic_memory.h
 	clang \
 		-target bpf \
 		-Wall -Wextra \
 		-I/usr/include/$(shell uname -m)-linux-gnu \
-		-Dnative_executable \
 		-g \
 		-O2 -o $@ -c $<
 
@@ -36,7 +35,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 load: $(BUILD_DIR) $(BUILD_DIR)/example.bpf.o
-	sudo bpftool prog load $(BUILD_DIR)/example.bpf.o /sys/fs/bpf/example
+	sudo /usr/local/sbin/bpftool prog load $(BUILD_DIR)/example.bpf.o /sys/fs/bpf/example
 
 unload:
 	sudo rm -f /sys/fs/bpf/example
