@@ -25,7 +25,8 @@
 #endif
 
 #ifdef native_executable
-uint8_t memory_pool[POOL_SIZE] = {0};
+// wrap memory_pool in a struct to provide the same interface as the eBPF map
+struct pool_map_t { uint8_t memory_pool[POOL_SIZE];} pool_map = {{0}};
 #else
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
@@ -33,17 +34,17 @@ struct {
     __uint(max_entries, 1);
     __type(key, uint32_t);
     __type(value, uint8_t[POOL_SIZE]);
-} memory_pool SEC(".maps");
+} pool_map SEC(".maps");
 #endif
 
-struct alloc {
+struct malloc {
     bool     in_use;
     uint32_t start;
     uint32_t size;
 };
 
-struct alloc_info {
-    struct alloc data[MAX_ALLOCS];
+struct malloc_metadata {
+    struct malloc data[MAX_ALLOCS];
 #ifdef native_executable
     int lock;
 #else
@@ -52,7 +53,7 @@ struct alloc_info {
 };
 
 #ifdef native_executable
-struct alloc_info alloc_metadata = {0};
+struct malloc_metadata metadata_map = {0};
 // create stub to reduce number of #ifdef in static_malloc and static_free
 void bpf_spin_lock(int *lock){(void)lock;};
 void bpf_spin_unlock(int *lock){(void)lock;};
@@ -62,9 +63,27 @@ struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, uint32_t);
-    __type(value, struct alloc_info);
-} alloc_metadata SEC(".maps");
+    __type(value, struct malloc_metadata);
+} metadata_map SEC(".maps");
 #endif
+
+static __always_inline uint8_t *get_pool(void *pool_map) {
+#ifdef native_executable
+    return ((struct pool_map_t*)pool_map)->memory_pool;
+#else
+    uint32_t key = 0;
+    return bpf_map_lookup_elem(pool_map, &key);
+#endif
+}
+
+static __always_inline struct malloc_metadata *get_metadata(void *metadata_map) {
+#ifdef native_executable
+    return metadata_map;
+#else
+    uint32_t key = 0;
+    return bpf_map_lookup_elem(metadata_map, &key);
+#endif
+}
 
 static __always_inline void *static_malloc(uint32_t size) {
     if (size == 0 || size > POOL_SIZE)
@@ -74,14 +93,8 @@ static __always_inline void *static_malloc(uint32_t size) {
     if (size % 8 != 0)
         size = ((size / 8) + 1) * 8;
 
-#ifdef native_executable
-    uint8_t *pool = memory_pool;
-    struct alloc_info *metadata = &alloc_metadata;
-#else
-    uint32_t key = 0;
-    uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);
-    struct alloc_info *metadata = bpf_map_lookup_elem(&alloc_metadata, &key);
-#endif
+    uint8_t *pool = get_pool(&pool_map);
+    struct malloc_metadata *metadata = get_metadata(&metadata_map);
     if (!pool || !metadata)
         return NULL;
 
@@ -125,14 +138,8 @@ static __always_inline void static_free(void *ptr) {
     if(!ptr)
         return;
 
-#ifdef native_executable 
-    uint8_t *pool = memory_pool;
-    struct alloc_info *metadata = &alloc_metadata;
-#else
-    uint32_t key = 0;
-    uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);
-    struct alloc_info *metadata = bpf_map_lookup_elem(&alloc_metadata, &key);
-#endif
+    uint8_t *pool = get_pool(&pool_map);
+    struct malloc_metadata *metadata = get_metadata(&metadata_map);
     if (!pool || !metadata)
         return;
 
