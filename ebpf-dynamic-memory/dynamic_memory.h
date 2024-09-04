@@ -98,20 +98,24 @@ static __always_inline void *static_malloc(uint32_t size) {
         current_pos += metadata->data[i].size;
     }
 
-#ifndef native_executable    
-    bpf_spin_unlock(&metadata->lock);
-#endif
-
-    if (alloc_index == -1)
-        return NULL; 
+    if (alloc_index == -1) {
+        bpf_spin_unlock(&metadata->lock);
+        return NULL;
+    }
 
     // check to make sure there is enough space
-    if (current_pos + size > POOL_SIZE)
+    if (current_pos + size > POOL_SIZE) {
+        bpf_spin_unlock(&metadata->lock);
         return NULL;
+    }
 
     metadata->data[alloc_index].in_use = true;
     metadata->data[alloc_index].start = current_pos;
     metadata->data[alloc_index].size = size;
+
+#ifndef native_executable    
+    bpf_spin_unlock(&metadata->lock);
+#endif
 
     return &pool[current_pos];
 }
