@@ -17,7 +17,7 @@ SEC("xdp")
 int example(struct xdp_md *ctx) {
     (void)ctx; // supress unused variable warning
 
-    vec2_t *data = (vec2_t *)static_malloc(bpf_get_prandom_u32());
+    vec2_t *data = (vec2_t *)static_malloc(bpf_get_prandom_u32() % 256);
     if (data)
         bpf_printk("valid block found");
     else
