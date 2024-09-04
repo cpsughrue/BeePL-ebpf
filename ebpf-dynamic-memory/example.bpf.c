@@ -7,7 +7,7 @@ typedef struct vec2 {
     int y;
 } vec2_t;
 
-#ifdef native_executable 
+#ifdef native_executable
 int main() {
     printf("hello world\n");
     return 0;
