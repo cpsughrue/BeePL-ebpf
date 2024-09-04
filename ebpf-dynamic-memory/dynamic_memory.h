@@ -44,13 +44,18 @@ struct alloc {
 
 struct alloc_info {
     struct alloc data[MAX_ALLOCS];
-#ifndef native_executable
+#ifdef native_executable
+    int lock;
+#else
     struct bpf_spin_lock lock;
 #endif
 };
 
 #ifdef native_executable
 struct alloc_info alloc_metadata = {0};
+// create stub to reduce number of #ifdef in static_malloc and static_free
+void bpf_spin_lock(int *lock){(void)lock;};
+void bpf_spin_unlock(int *lock){(void)lock;};
 #else
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
@@ -84,9 +89,7 @@ static __always_inline void *static_malloc(uint32_t size) {
     uint64_t current_pos = 0; // [0, POOL_SIZE]
     int64_t alloc_index = -1; // [-1, MAX_ALLOCS]
 
-#ifndef native_executable
     bpf_spin_lock(&metadata->lock);
-#endif
 
     // because alloc_metadata is zero initalized, if alloc_info::size is 0 then
     // that index can be used to store meta data
@@ -113,10 +116,7 @@ static __always_inline void *static_malloc(uint32_t size) {
     metadata->data[alloc_index].start = current_pos;
     metadata->data[alloc_index].size = size;
 
-#ifndef native_executable    
     bpf_spin_unlock(&metadata->lock);
-#endif
-
     return &pool[current_pos];
 }
 
