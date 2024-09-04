@@ -26,7 +26,7 @@
 
 #ifdef native_executable
 // wrap memory_pool in a struct to provide the same interface as the eBPF map
-struct pool_map_t { uint8_t memory_pool[POOL_SIZE];} pool_map = {{0}};
+struct memory_pool { uint8_t memory_pool[POOL_SIZE];} pool_map = {{0}};
 #else
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
@@ -69,7 +69,7 @@ struct {
 
 static __always_inline uint8_t *get_pool(void *pool_map) {
 #ifdef native_executable
-    return ((struct pool_map_t*)pool_map)->memory_pool;
+    return ((struct memory_pool*)pool_map)->memory_pool;
 #else
     uint32_t key = 0;
     return bpf_map_lookup_elem(pool_map, &key);
