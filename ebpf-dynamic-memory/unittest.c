@@ -13,7 +13,7 @@ const struct malloc_metadata zero_malloc_metadata = {0};
 
 // pool_map is a struct which wraps `uint8_t memory_pool[POOL_SIZE]` to match
 // the interface of an eBPF map. unbox the type like bpf_map_lookup_elem to 
-// simplify unittesting
+// simplify unittesting. For some reason clang thinks memory_pool is unused
 uint8_t *memory_pool = pool_map.memory_pool;
 
 void print(uint8_t *memory) {

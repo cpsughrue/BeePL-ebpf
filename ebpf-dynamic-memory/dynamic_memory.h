@@ -15,13 +15,15 @@
 // Same number of allocations as would be possible with the linked list
 // approach. struct block is 24 bytes plus a minimum of 8 bytes of data per
 // allocation (8 byte minimum due to 8 byte alignment) results in a minimum
-// allocation of 32 bytes and 1024 / 32 = 32
-#ifndef MAX_ALLOCS
-#define MAX_ALLOCS 32
-#endif
-
+// allocation of 32 bytes
+#define BYTES_PER_GB 1073741824ULL
 #ifndef POOL_SIZE
 #define POOL_SIZE 1024
+// #define POOL_SIZE (BYTES_PER_GB * 1)
+#endif
+
+#ifndef MAX_ALLOCS
+#define MAX_ALLOCS (POOL_SIZE / 32)
 #endif
 
 #ifdef native_executable
@@ -87,7 +89,7 @@ static __always_inline struct malloc_metadata *get_metadata(void *metadata_map) 
 #endif
 }
 
-static __always_inline void *static_malloc(uint32_t size) {
+static __always_inline void *static_malloc(uint64_t size) {
     if (size == 0 || size > POOL_SIZE)
         return NULL;
 
@@ -100,24 +102,25 @@ static __always_inline void *static_malloc(uint32_t size) {
     if (!pool || !metadata)
         return NULL;
 
-    // Use 64 bit values to provide flexibility in setting POOL_SIZE and MAX_ALLOCS
-    uint64_t current_pos = 0; // [0, POOL_SIZE]
-    int64_t alloc_index = -1; // [-1, MAX_ALLOCS]
+    // Use unsigned 64 bit values to provide flexibility in setting POOL_SIZE and MAX_ALLOCS
+    uint64_t current_pos = 0;
+    uint64_t malloc_index = 0;
+    int8_t block_found = false;
 
     bpf_spin_lock(&metadata->lock);
 
     // because alloc_metadata is zero initalized, if alloc_info::size is 0 then
     // that index can be used to store meta data
-    for (int i = 0; i < MAX_ALLOCS; i++) {
-        if ((metadata->data[i].size == 0 || metadata->data[i].size >= size) &&
-            !metadata->data[i].in_use) {
-            alloc_index = i;
+    for (uint64_t i = 0; i < MAX_ALLOCS; i++) {
+        if ((metadata->data[i].size == 0 || metadata->data[i].size >= size) && !metadata->data[i].in_use) {
+            malloc_index = i;
+            block_found = true;
             break;
         }
         current_pos += metadata->data[i].size;
     }
 
-    if (alloc_index == -1) {
+    if (block_found == false) {
         bpf_spin_unlock(&metadata->lock);
         return NULL;
     }
@@ -128,9 +131,9 @@ static __always_inline void *static_malloc(uint32_t size) {
         return NULL;
     }
 
-    metadata->data[alloc_index].in_use = true;
-    metadata->data[alloc_index].start = current_pos;
-    metadata->data[alloc_index].size = size;
+    metadata->data[malloc_index].in_use = true;
+    metadata->data[malloc_index].start = current_pos;
+    metadata->data[malloc_index].size = size;
 
     bpf_spin_unlock(&metadata->lock);
     return &pool[current_pos];
@@ -146,8 +149,8 @@ static __always_inline void static_free(void *ptr) {
     if (!pool || !metadata)
         return;
 
-    uint32_t ptr_offset = (uint8_t *)ptr - pool;
-    for (int i = 0; i < MAX_ALLOCS; i++) {
+    uint64_t ptr_offset = (uint8_t *)ptr - pool;
+    for (uint64_t i = 0; i < MAX_ALLOCS; i++) {
         // find the metadata block that corresponds with the pointer being freed
         if (metadata->data[i].start == ptr_offset) {
             metadata->data[i].in_use = false;
