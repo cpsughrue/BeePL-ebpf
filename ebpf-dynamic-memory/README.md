@@ -33,3 +33,17 @@ Testing has occurred on
 [cpsughrue@desktop repos]$ uname -a
 Linux desktop 5.14.0-427.13.1.el9_4.x86_64 #1 SMP PREEMPT_DYNAMIC Wed May 1 19:11:28 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux
 ```
+
+### Known Issues
+
+The eBPF verifier requires that every pointer be checked, to confirm that it is not NULL, before being used to access data. For example:
+```c
+void *ptr = malloc(size);
+```
+needs to be transformed to 
+```c
+void *ptr = static_malloc(size);
+if (!ptr)
+    // return or exit early;
+```
+`modify.sh` currently does not add the required null pointer check. Depending on the program a NULL pointer may need to be handled differently.

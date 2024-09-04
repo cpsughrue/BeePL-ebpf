@@ -24,10 +24,17 @@
 #define POOL_SIZE 1024
 #endif
 
-struct alloc_info {
+struct alloc {
     bool     in_use;
     uint32_t start;
     uint32_t size;
+};
+
+struct alloc_info {
+    struct alloc data[MAX_ALLOCS];
+#ifndef native_executable
+    struct bpf_spin_lock lock;
+#endif
 };
 
 #ifdef native_executable
@@ -35,7 +42,7 @@ uint8_t memory_pool[POOL_SIZE] = {0};
 #else
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, uint32_t);
     __type(value, uint8_t[POOL_SIZE]);
@@ -47,10 +54,10 @@ struct alloc_info alloc_metadata[MAX_ALLOCS] = {0};
 #else
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, uint32_t);
-    __type(value, struct alloc_info[MAX_ALLOCS]);
+    __type(value, struct alloc_info);
 } alloc_metadata SEC(".maps");
 #endif
 
@@ -77,15 +84,23 @@ static __always_inline void *static_malloc(uint32_t size) {
     uint64_t current_pos = 0; // [0, POOL_SIZE]
     int64_t alloc_index = -1; // [-1, MAX_ALLOCS]
 
+#ifndef native_executable
+    bpf_spin_lock(&metadata->lock);
+#endif
+
     // because alloc_metadata is zero initalized, if alloc_info::size is 0 then
     // that index can be used to store meta data
     for (int i = 0; i < MAX_ALLOCS; i++) {
-        if ((metadata[i].size == 0 || metadata[i].size >= size) && !metadata[i].in_use) {
+        if ((metadata->data[i].size == 0 || metadata->data[i].size >= size) && !metadata->data[i].in_use) {
             alloc_index = i;
             break;
         }
-        current_pos += metadata[i].size;
+        current_pos += metadata->data[i].size;
     }
+
+#ifndef native_executable    
+    bpf_spin_unlock(&metadata->lock);
+#endif
 
     if (alloc_index == -1)
         return NULL; 
@@ -94,9 +109,9 @@ static __always_inline void *static_malloc(uint32_t size) {
     if (current_pos + size > POOL_SIZE)
         return NULL;
 
-    metadata[alloc_index].in_use = true;
-    metadata[alloc_index].start = current_pos;
-    metadata[alloc_index].size = size;
+    metadata->data[alloc_index].in_use = true;
+    metadata->data[alloc_index].start = current_pos;
+    metadata->data[alloc_index].size = size;
 
     return &pool[current_pos];
 }
@@ -120,8 +135,8 @@ static __always_inline void static_free(void *ptr) {
     uint32_t ptr_offset = (uint8_t *)ptr - pool;
     for (int i = 0; i < MAX_ALLOCS; i++) {
         // find the metadata block that corresponds with the pointer being freed
-        if (metadata[i].start == ptr_offset) {
-            metadata[i].in_use = false;
+        if (metadata->data[i].start == ptr_offset) {
+            metadata->data[i].in_use = false;
             return;
         }
     }
