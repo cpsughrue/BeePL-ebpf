@@ -24,6 +24,18 @@
 #define POOL_SIZE 1024
 #endif
 
+#ifdef native_executable
+uint8_t memory_pool[POOL_SIZE] = {0};
+#else
+// zero initialized: https://docs.kernel.org/bpf/map_array.html
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, uint32_t);
+    __type(value, uint8_t[POOL_SIZE]);
+} memory_pool SEC(".maps");
+#endif
+
 struct alloc {
     bool     in_use;
     uint32_t start;
@@ -38,19 +50,7 @@ struct alloc_info {
 };
 
 #ifdef native_executable
-uint8_t memory_pool[POOL_SIZE] = {0};
-#else
-// zero initialized: https://docs.kernel.org/bpf/map_array.html
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, uint32_t);
-    __type(value, uint8_t[POOL_SIZE]);
-} memory_pool SEC(".maps");
-#endif
-
-#ifdef native_executable 
-struct alloc_info alloc_metadata[MAX_ALLOCS] = {0};
+struct alloc_info alloc_metadata = {0};
 #else
 // zero initialized: https://docs.kernel.org/bpf/map_array.html
 struct {
@@ -69,9 +69,9 @@ static __always_inline void *static_malloc(uint32_t size) {
     if (size % 8 != 0)
         size = ((size / 8) + 1) * 8;
 
-#ifdef native_executable 
+#ifdef native_executable
     uint8_t *pool = memory_pool;
-    struct alloc_info *metadata = alloc_metadata;
+    struct alloc_info *metadata = &alloc_metadata;
 #else
     uint32_t key = 0;
     uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);
@@ -123,7 +123,7 @@ static __always_inline void static_free(void *ptr) {
 
 #ifdef native_executable 
     uint8_t *pool = memory_pool;
-    struct alloc_info *metadata = alloc_metadata;
+    struct alloc_info *metadata = &alloc_metadata;
 #else
     uint32_t key = 0;
     uint8_t *pool = bpf_map_lookup_elem(&memory_pool, &key);

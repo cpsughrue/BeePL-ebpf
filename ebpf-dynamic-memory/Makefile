@@ -28,8 +28,11 @@ UNITY_PATH = ../unity/src
 UNITTEST_SRC = unittest.c  $(UNITY_PATH)/unity.c
 
 unittest: $(BUILD_DIR) $(UNITTEST_SRC) dynamic_memory.h
-	clang $(UNITTEST_SRC) -I$(UNITY_PATH) \
-		-Dnative_executable -o $(BUILD_DIR)/$@ && ./$(BUILD_DIR)/unittest
+	clang \
+		-Wall -Wextra \
+		-Dnative_executable \
+		-I$(UNITY_PATH) $(UNITTEST_SRC) \
+		-o $(BUILD_DIR)/$@ && ./$(BUILD_DIR)/unittest
 
 clean:
 	rm -rf $(BUILD_DIR)

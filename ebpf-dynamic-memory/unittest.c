@@ -8,7 +8,7 @@
 #include "dynamic_memory.h"
 
 const uint8_t zero_memory_pool[POOL_SIZE] = {0};
-const struct alloc_info zero_alloc_metadata[MAX_ALLOCS] = {0};
+const struct alloc_info zero_alloc_metadata = {0};
 
 void print(uint8_t *memory) {
     for (int i = 0; i < POOL_SIZE; i++) {
@@ -22,15 +22,16 @@ void print(uint8_t *memory) {
     }
 }
 
-// Confrim values of POOL_SIZE and MAX_ALLOC are not being overwritten
+// Confirm values of POOL_SIZE and MAX_ALLOC are not being overwritten
 void test_constants(void) {
     TEST_ASSERT_EQUAL_INT16(POOL_SIZE, 256);
     TEST_ASSERT_EQUAL_INT16(MAX_ALLOCS, 8);
 }
 
 void setUp(void) {
-    memset(memory_pool, 0, sizeof(memory_pool[0]) * POOL_SIZE);
-    memset(alloc_metadata, 0, sizeof(alloc_metadata[0]) * MAX_ALLOCS);
+    // reset memory_pool and alloc_metadata to init state before every test
+    memset(memory_pool, 0, sizeof(memory_pool));
+    memset(&alloc_metadata, 0, sizeof(alloc_metadata));
 }
 
 // UnityDefaultTestRun requires tearDown to be defined
@@ -40,14 +41,14 @@ void test_size_zero_static_malloc(void) {
     void *ptr = static_malloc(0);
     TEST_ASSERT_EQUAL_PTR(NULL, ptr);
     TEST_ASSERT_EQUAL_INT8_ARRAY(zero_memory_pool, memory_pool, POOL_SIZE);
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(zero_alloc_metadata, alloc_metadata, sizeof(struct alloc_info), MAX_ALLOCS);
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(zero_alloc_metadata.data, alloc_metadata.data, sizeof(struct alloc), MAX_ALLOCS);
 }
 
 void test_size_to_large_static_malloc(void) {
     void *ptr = static_malloc(POOL_SIZE + 1);
     TEST_ASSERT_EQUAL_PTR(NULL, ptr);
     TEST_ASSERT_EQUAL_INT8_ARRAY(zero_memory_pool, memory_pool, POOL_SIZE);
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(zero_alloc_metadata, alloc_metadata, sizeof(struct alloc_info), MAX_ALLOCS);
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(zero_alloc_metadata.data, alloc_metadata.data, sizeof(struct alloc), MAX_ALLOCS);
 }
 
 void test_size_pool_max_static_malloc(void) {
@@ -55,14 +56,14 @@ void test_size_pool_max_static_malloc(void) {
     TEST_ASSERT_EQUAL_PTR(memory_pool, ptr);
     TEST_ASSERT_EQUAL_INT8_ARRAY(zero_memory_pool, memory_pool, POOL_SIZE);
     
-    struct alloc_info block = {
+    struct alloc block = {
         .in_use = true,
         .start = 0,
         .size = POOL_SIZE
     };
     
-    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
 }
 
 void test_eight_byte_alignment_static_malloc_1(void) {
@@ -70,14 +71,14 @@ void test_eight_byte_alignment_static_malloc_1(void) {
     TEST_ASSERT_EQUAL_PTR(memory_pool, ptr);
     TEST_ASSERT_EQUAL_INT8_ARRAY(zero_memory_pool, memory_pool, POOL_SIZE);
     
-    struct alloc_info block = {
+    struct alloc block = {
         .in_use = true,
         .start = 0,
         .size = 8
     };
     
-    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
 }
 
 void test_eight_byte_alignment_static_malloc_2(void) {
@@ -85,14 +86,14 @@ void test_eight_byte_alignment_static_malloc_2(void) {
     TEST_ASSERT_EQUAL_PTR(memory_pool, ptr);
     TEST_ASSERT_EQUAL_INT8_ARRAY(zero_memory_pool, memory_pool, POOL_SIZE);
     
-    struct alloc_info block = {
+    struct alloc block = {
         .in_use = true,
         .start = 0,
         .size = 16
     };
     
-    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
 }
 
 void test_data_insertion_static_malloc(void) {
@@ -103,14 +104,14 @@ void test_data_insertion_static_malloc(void) {
     TEST_ASSERT_EQUAL_INT8(255, memory_pool[0]);
     TEST_ASSERT_EQUAL_INT8_ARRAY(&zero_memory_pool[1], &memory_pool[1], POOL_SIZE - 1);
 
-    struct alloc_info block = {
+    struct alloc block = {
         .in_use = true,
         .start = 0,
         .size = 8
     };
     
-    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
 }
 
 void test_multiple_static_malloc(void) {
@@ -122,26 +123,26 @@ void test_multiple_static_malloc(void) {
     TEST_ASSERT_EQUAL_PTR(&memory_pool[16], ptr2);
     TEST_ASSERT_EQUAL_PTR(&memory_pool[144], ptr3);
     
-    struct alloc_info block1 = {
+    struct alloc block1 = {
         .in_use = true,
         .start = 0,
         .size = 16
     };
-    struct alloc_info block2 = {
+    struct alloc block2 = {
         .in_use = true,
         .start = 16,
         .size = 128
     };
-    struct alloc_info block3 = {
+    struct alloc block3 = {
         .in_use = true,
         .start = 144,
         .size = 8
     };
     
-    TEST_ASSERT_EQUAL_MEMORY(&block1, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY(&block2, &alloc_metadata[1], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY(&block3, &alloc_metadata[2], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[3], &alloc_metadata[3], sizeof(struct alloc_info), MAX_ALLOCS - 3);
+    TEST_ASSERT_EQUAL_MEMORY(&block1, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY(&block2, &alloc_metadata.data[1], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY(&block3, &alloc_metadata.data[2], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[3], &alloc_metadata.data[3], sizeof(struct alloc), MAX_ALLOCS - 3);
 }
 
 void test_block_reuse_static_free(void) {
@@ -151,25 +152,27 @@ void test_block_reuse_static_free(void) {
     TEST_ASSERT_EQUAL_INT8(255, memory_pool[0]);
     TEST_ASSERT_EQUAL_INT8_ARRAY(&zero_memory_pool[1], &memory_pool[1], POOL_SIZE - 1);
 
-    struct alloc_info block = {
+    struct alloc block = {
         .in_use = true,
         .start = 0,
         .size = 8
     };
     
-    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
 
     static_free(ptr1);
     block.in_use = false; 
-    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
     
     // The block created for the first static_malloc should be resused for the second
-    uint8_t *ptr2 = (uint8_t*)static_malloc(8);
+    uint8_t *ptr2 = (uint8_t*)static_malloc(8); 
     block.in_use = true; 
-    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
+
+    (void)ptr2; // suppress -Wunused-variable
 }
 
 // NOTE: This is behavior that should probably change. There is no reason the 
@@ -181,31 +184,33 @@ void test_block_too_large_static_free(void) {
     TEST_ASSERT_EQUAL_INT8(255, memory_pool[0]);
     TEST_ASSERT_EQUAL_INT8_ARRAY(&zero_memory_pool[1], &memory_pool[1], POOL_SIZE - 1);
 
-    struct alloc_info block1 = {
+    struct alloc block1 = {
         .in_use = true,
         .start = 0,
         .size = 8
     };
     
-    TEST_ASSERT_EQUAL_MEMORY(&block1, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block1, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
 
     static_free(ptr1);
     block1.in_use = false; 
-    TEST_ASSERT_EQUAL_MEMORY(&block1, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[1], &alloc_metadata[1], sizeof(struct alloc_info), MAX_ALLOCS - 1);
+    TEST_ASSERT_EQUAL_MEMORY(&block1, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[1], &alloc_metadata.data[1], sizeof(struct alloc), MAX_ALLOCS - 1);
     
     uint8_t *ptr2 = (uint8_t*)static_malloc(32);
     
-    struct alloc_info block2 = {
+    struct alloc block2 = {
         .in_use = true,
         .start = 8,
         .size = 32
     };
     
-    TEST_ASSERT_EQUAL_MEMORY(&block1, &alloc_metadata[0], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY(&block2, &alloc_metadata[1], sizeof(struct alloc_info));
-    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata[2], &alloc_metadata[2], sizeof(struct alloc_info), MAX_ALLOCS - 2);
+    TEST_ASSERT_EQUAL_MEMORY(&block1, &alloc_metadata.data[0], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY(&block2, &alloc_metadata.data[1], sizeof(struct alloc));
+    TEST_ASSERT_EQUAL_MEMORY_ARRAY(&zero_alloc_metadata.data[2], &alloc_metadata.data[2], sizeof(struct alloc), MAX_ALLOCS - 2);
+    
+    (void)ptr2; // suppress -Wunused-variable
 }
 
 int main(void) {
