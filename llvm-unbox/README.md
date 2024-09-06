@@ -153,7 +153,7 @@ box_t foo(box_t bar) {
 </code></pre>
 <br>
 
-As long as `sizeof(box_t)` is 128 bytes or less the LLVM optimizer will unpack `box_t` and pass its contents to `foo` as integer arguments. Once `sizeof(box_t)` is larger then 64 bytes `foo` begins to return a structured value.
+As long as `sizeof(box_t)` is 16 bytes or less the LLVM optimizer will unpack `box_t` and pass its contents to `foo` as integer arguments. Once `sizeof(box_t)` is larger then 16 bytes `foo` begins to return a structured value.
 
 ```c
 #include <stdint.h>
@@ -178,7 +178,7 @@ box_t foo(box_t bar) {
 </code></pre>
 <br>
 
-As soon as `sizeof(box_t)` exceeds 128 bytes the LLVM optimizer passes the struct to `foo` by value instead of unpacking its contents.
+As soon as `sizeof(box_t)` exceeds 16 bytes the LLVM optimizer passes the struct to `foo` by value instead of unpacking its contents.
 ```c
 #include <stdint.h>
 
@@ -267,7 +267,7 @@ int packet_count(void *ctx) {
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 ```
-This is where I left off. I got eBPF set up and can load/unload xdp programs. I am still working on creating an xdp program that gets rejected by the eBPF verifier due to its use of a struct. It has been harder then I expected, potentially because LLVM already unpacks simple structs, but I think I am pretty close to getting there.
+This is where I left off. I got eBPF set up and can load/unload xdp programs. I am still working on creating an xdp program that gets rejected by the eBPF verifier due to its use of a struct. It has been harder then I expected, potentially because LLVM already unpacks simple structs.
 
 ### Other questions I need to figure out
 * I need to figure out if it is problematic for a function to return a struct in an eBPF program (e.g., `ret { i64, i64 } %4`)
