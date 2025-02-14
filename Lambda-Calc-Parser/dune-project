@@ -1,0 +1,9 @@
+(lang dune 3.17)
+
+(name lambda)
+
+(package
+ (name lambda)
+ (depends ocaml dune))
+
+(using menhir 3.0)
