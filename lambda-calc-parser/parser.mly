@@ -5,7 +5,7 @@ open Term
 %token <string> ID
 %token LPAREN "("
 %token RPAREN ")"
-%token LAMBDA "λ"
+%token LAMBDA "L"
 %token DOT "."
 %token END
 %token EOF
@@ -32,7 +32,7 @@ let application :=
   | t = application; u = element; { App (t, u) }
 
 let abstraction :=
-  | "λ"; x = ID; u = body; { Abs (x, u) }
+  | "L"; x = ID; u = body; { Abs (x, u) }
 
 let body :=
   | "."; u = term; { u }
